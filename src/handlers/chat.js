@@ -171,13 +171,13 @@ export async function handleChatCompletions(body) {
   const hasTools = Array.isArray(tools) && tools.length > 0;
   const hasToolHistory = Array.isArray(messages) && messages.some(m => m?.role === 'tool' || (m?.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length));
   const emulateTools = useCascade && (hasTools || hasToolHistory);
-  // Build proto-level preamble (goes into tool_calling_section override);
-  // pass empty tools to normalizeMessagesForCascade so it only rewrites
-  // role:tool / assistant.tool_calls messages without injecting a user-level
-  // preamble (that's now handled at the proto layer).
+  // Build proto-level preamble (goes into tool_calling_section override).
+  // Also inject into the last user message as fallback — some models in
+  // NO_TOOL mode ignore the SectionOverride entirely and refuse to call
+  // tools unless they see the definitions in the conversation itself. (#22)
   const toolPreamble = emulateTools ? buildToolPreambleForProto(tools || [], tool_choice) : '';
   let cascadeMessages = emulateTools
-    ? normalizeMessagesForCascade(messages, [])
+    ? normalizeMessagesForCascade(messages, tools)
     : [...messages];
 
   // ── Model identity prompt injection ──
@@ -261,7 +261,7 @@ export async function handleChatCompletions(body) {
   // conversations to lose context after every turn (#24). A fingerprint miss
   // just falls back to fresh cascade (no worse than before). (#24)
   const reuseEnabled = useCascade && isExperimentalEnabled('cascadeConversationReuse');
-  const fpBefore = reuseEnabled ? fingerprintBefore(messages) : null;
+  const fpBefore = reuseEnabled ? fingerprintBefore(messages, modelKey) : null;
   let reuseEntry = reuseEnabled ? poolCheckout(fpBefore) : null;
   if (reuseEntry) log.info(`Chat: cascade reuse HIT cascadeId=${reuseEntry.cascadeId.slice(0, 8)}… model=${displayModel}`);
 
@@ -411,7 +411,7 @@ async function nonStreamResponse(client, id, created, model, modelKey, messages,
     // Check the cascade back into the pool under the *post-turn* fingerprint
     // so the next request in the same conversation can resume it.
     if (poolCtx && cascadeMeta?.cascadeId && allText) {
-      const fpAfter = fingerprintAfter(messages);
+      const fpAfter = fingerprintAfter(messages, modelKey);
       poolCheckin(fpAfter, {
         cascadeId: cascadeMeta.cascadeId,
         sessionId: cascadeMeta.sessionId,
@@ -590,7 +590,7 @@ function streamResponse(id, created, model, modelKey, messages, cascadeMessages,
       // tool-emulation mode because the fingerprint can't collapse turns
       // whose bodies carry <tool_call>/<tool_result> markup.
       const reuseEnabled = useCascade && !emulateTools && isExperimentalEnabled('cascadeConversationReuse');
-      const fpBefore = reuseEnabled ? fingerprintBefore(messages) : null;
+      const fpBefore = reuseEnabled ? fingerprintBefore(messages, modelKey) : null;
       let reuseEntry = reuseEnabled ? poolCheckout(fpBefore) : null;
       if (reuseEntry) log.info(`Chat: cascade reuse HIT cascadeId=${reuseEntry.cascadeId.slice(0, 8)}… stream model=${model}`);
 
@@ -760,7 +760,7 @@ function streamResponse(id, created, model, modelKey, messages, cascadeMessages,
             emitThinking(pathStreamThinking.flush());
             // Pool check-in on success (cascade only)
             if (reuseEnabled && cascadeResult?.cascadeId && accText) {
-              const fpAfter = fingerprintAfter(messages);
+              const fpAfter = fingerprintAfter(messages, modelKey);
               poolCheckin(fpAfter, {
                 cascadeId: cascadeResult.cascadeId,
                 sessionId: cascadeResult.sessionId,

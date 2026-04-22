@@ -57,11 +57,11 @@ function canonicalise(messages) {
  * may restructure content arrays, add tool_use blocks, or modify text,
  * causing hash mismatches and 0% hit rate. (#24)
  */
-export function fingerprintBefore(messages) {
+export function fingerprintBefore(messages, modelKey = '') {
   if (!Array.isArray(messages) || messages.length < 2) return null;
   const users = messages.filter(m => m.role === 'user');
   if (users.length < 2) return null;
-  return sha256(JSON.stringify(canonicalise(users.slice(0, -1))));
+  return sha256(modelKey + '\0' + JSON.stringify(canonicalise(users.slice(0, -1))));
 }
 
 /**
@@ -69,10 +69,10 @@ export function fingerprintBefore(messages) {
  * Uses all user messages (including current). The *next* request's
  * `fingerprintBefore` will hash users[:-1] which equals this value.
  */
-export function fingerprintAfter(messages) {
+export function fingerprintAfter(messages, modelKey = '') {
   const users = messages.filter(m => m.role === 'user');
   if (!users.length) return null;
-  return sha256(JSON.stringify(canonicalise(users)));
+  return sha256(modelKey + '\0' + JSON.stringify(canonicalise(users)));
 }
 
 function prune(now) {
