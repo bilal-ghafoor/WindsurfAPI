@@ -344,15 +344,9 @@ function buildCascadeConfig(modelEnum, modelUid, { toolPreamble, forceDefault } 
   //   0 UNSPECIFIED  1 DEFAULT  2 READ_ONLY  3 NO_TOOL
   //   4 EXPLORE      5 PLANNING 6 AUTO
   //
-  // We pick NO_TOOL (3). DEFAULT keeps the IDE agent loop alive, so even
-  // without setting CascadeToolConfig the planner reflexively fires
-  // edit_file/view_file, which produces:
-  //   - stall_warm bursts (15–25s silent tool-execution trajectory steps)
-  //   - "Cascade cannot create /tmp/windsurf-workspace/foo because it already
-  //     exists" on request bursts that reuse the same filename
-  //   - /tmp/windsurf-workspace path leaks inside the chat body
-  // NO_TOOL tells the planner to generate a pure conversational response
-  // with no tool_call proposals at all.
+  // MODIFIED: We use DEFAULT (1) to enable tool execution.
+  // DEFAULT keeps the IDE agent loop alive, allowing SWE-1.6 to execute tools.
+  // Tool execution is now handled by our local tool executor with security controls.
   //
   // When toolPreamble is provided (client-side OpenAI tools[] emulation),
   // we inject it into the system prompt's tool_calling_section via
@@ -362,10 +356,10 @@ function buildCascadeConfig(modelEnum, modelUid, { toolPreamble, forceDefault } 
   // put in the user message. The section override replaces that section
   // directly so the model sees our emulated tool definitions at the
   // system-prompt level.
-  // NO_TOOL (3) for all cases. READ_ONLY (2) caused proto wire-type errors
-  // on some LS versions. Tool definitions are injected via SectionOverride
-  // (field 12) + user-message preamble as dual-layer fallback.
-  const mode = forceDefault ? 1 : 3;
+  // DEFAULT (1) for all cases to enable tool execution.
+  // Changed from NO_TOOL (3) to allow SWE-1.6 to execute tools locally.
+  // Tool definitions are injected via SectionOverride (field 12) + user-message preamble.
+  const mode = forceDefault ? 1 : 1;
   const convParts = [writeVarintField(4, mode)];
 
   // ── System prompt section overrides ──────────────────────────────────
